@@ -1,7 +1,72 @@
 # Polymarket 交易策略最佳实践
 
 > 基于 GitHub 开源项目研究、实战经验总结和社区最佳实践
-> 更新时间: 2026-03-13 12:00 UTC
+> 更新时间: 2026-03-14 12:00 UTC
+
+---
+
+## 🆕 最新更新 (2026-03-14)
+
+### py-clob-client 官方 SDK 使用指南
+
+**安装**:
+```bash
+pip install py-clob-client
+```
+
+**核心操作**:
+
+```python
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import OrderArgs, OrderType, MarketOrderArgs
+from py_clob_client.order_builder.constants import BUY, SELL
+
+# 初始化客户端
+HOST = "https://clob.polymarket.com"
+CHAIN_ID = 137  # Polygon
+
+# EOA/MetaMask 钱包
+client = ClobClient(HOST, key=PRIVATE_KEY, chain_id=CHAIN_ID, signature_type=0)
+client.set_api_creds(client.create_or_derive_api_creds())
+
+# Email/Magic 钱包（需要 funder 地址）
+client = ClobClient(HOST, key=PRIVATE_KEY, chain_id=CHAIN_ID, 
+                    signature_type=1, funder=FUNDER_ADDRESS)
+client.set_api_creds(client.create_or_derive_api_creds())
+
+# 获取市场数据
+midpoint = client.get_midpoint(token_id)
+price = client.get_price(token_id, side="BUY")
+orderbook = client.get_order_book(token_id)
+
+# 市价单（按金额买入）
+mo = MarketOrderArgs(token_id=token_id, amount=25.0, side=BUY, order_type=OrderType.FOK)
+signed = client.create_market_order(mo)
+resp = client.post_order(signed, OrderType.FOK)
+
+# 限价单
+order = OrderArgs(token_id=token_id, price=0.50, size=10.0, side=BUY)
+signed = client.create_order(order)
+resp = client.post_order(signed, OrderType.GTC)
+
+# 管理订单
+open_orders = client.get_orders(OpenOrderParams())
+client.cancel(order_id)
+client.cancel_all()
+```
+
+**⚠️ Token Allowances (MetaMask/EOA 用户必读)**:
+
+使用 MetaMask 或硬件钱包前，必须设置 token allowances：
+- **USDC**: `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`
+- **Conditional Tokens**: `0x4D97DCd97eC945f40cF65F87097ACe5EA0476045`
+
+批准给这些合约:
+- `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E` (Main exchange)
+- `0xC5d563A36AE78145C45a50134d48A1215220f80a` (Neg risk markets)
+- `0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296` (Neg risk adapter)
+
+Email/Magic 钱包用户无需手动设置。
 
 ---
 
@@ -412,6 +477,141 @@ ENABLE_CONSENSUS_CHECK=true
 - [ ] 更新黑名单关键词
 - [ ] 监控大户排行榜变化
 - [ ] 测试新策略（先用 Dry Run）
+
+---
+
+## 🔧 当前系统配置分析 (2026-03-14)
+
+### 系统架构
+
+```
+run_automaton_integrated.py
+    ├── AutomatonV2 (元策略管理器)
+    │   ├── SmartMoneyServiceV2 (Smart Money 流)
+    │   ├── Skills V2 策略
+    │   │   ├── Mert Sniper
+    │   │   ├── Signal Sniper
+    │   │   ├── AI Divergence
+    │   │   ├── CopyTrading
+    │   │   └── Weather Trader
+    │   └── Bandit Optimizer (动态权重)
+    ├── Position Monitor (持仓监控)
+    └── Param Manager (参数管理)
+```
+
+### 当前配置参数
+
+| 参数 | 当前值 | 说明 |
+|------|--------|------|
+| `ENABLED_DETECTORS` | `["smart_closing"]` | 仅启用 smart_closing |
+| `AUTO_TRADE_ENABLED` | `false` | 自动交易关闭 |
+| `SIGNAL_TRADE_AMOUNT_MIN` | `$1.0` | 最小交易金额 |
+| `SIGNAL_TRADE_AMOUNT_MAX` | `$5.0` | 最大交易金额 |
+| `MIN_CONFIDENCE` | `0.60` | 最小信号置信度 60% |
+| `MAX_POSITION_PER_MARKET` | `$15` | 单市场持仓限制 |
+| `SIGNAL_CONFIRMATION_COUNT` | `3` | 需要 3 次确认 |
+| `MIN_TIME_TO_EXPIRY` | `6h` | 最小到期时间 |
+
+### Bandit 算法配置
+
+```python
+# automaton_v2.py
+exploration_weight = 2.0      # 探索权重
+min_pulls_before_exploit = 3  # 最小执行次数后才利用
+```
+
+---
+
+## 💡 优化建议 (2026-03-14)
+
+### 1. 🎯 策略层优化
+
+#### 当前问题
+- 仅启用 `smart_closing` 一个检测器，策略多样性不足
+- `SIGNAL_CONFIRMATION_COUNT=3` 门槛过高，可能错过快速信号
+
+#### 建议
+```bash
+# 启用更多检测器
+ENABLED_DETECTORS=["smart_closing", "whale", "orderbook"]
+
+# 降低确认门槛，提高灵敏度
+SIGNAL_CONFIRMATION_COUNT=2
+SIGNAL_CONFIRMATION_WINDOW=180  # 缩短确认窗口
+```
+
+### 2. 💰 交易金额优化
+
+#### 当前问题
+- `$1-5` 金额过小，手续费侵蚀利润
+- 3.15% 手续费下，$5 交易成本 $0.16
+
+#### 建议
+```bash
+# 提高交易金额
+SIGNAL_TRADE_AMOUNT_MIN=3.0
+SIGNAL_TRADE_AMOUNT_MAX=10.0
+
+# 高置信度信号加仓
+# 在代码中实现: confidence > 0.8 时 amount *= 1.5
+```
+
+### 3. 📊 价格区间优化
+
+#### 当前问题
+- `SIGNAL_TRADE_MIN_PRICE=0.50` 允许中价位入场
+- 根据实战数据，$0.70-0.80 是死亡区间
+
+#### 建议
+```bash
+# 避开死亡区间
+SIGNAL_TRADE_MIN_PRICE=0.80  # 只做高价区（NO Farming）
+# 或者
+SIGNAL_TRADE_MAX_PRICE=0.70  # 只做低价区（Long-Shot）
+```
+
+### 4. 🔥 高优先级改进
+
+| 优先级 | 改进项 | 预期效果 |
+|--------|--------|---------|
+| P0 | 启用 `whale` 检测器 | 捕获大额交易信号 |
+| P0 | 降低 `SIGNAL_CONFIRMATION_COUNT` 到 2 | 提高信号执行率 |
+| P1 | 实现 Tiered Multipliers | 大额信号加仓 |
+| P1 | 添加死亡区间过滤 | 避开 $0.70-0.80 |
+| P2 | 实现 Trade Aggregator | 小额聚合降低手续费 |
+| P2 | 添加 Slippage Protection | 动态滑点控制 |
+
+### 5. 🧪 测试建议
+
+1. **先 Dry Run 测试**: 设置 `AUTO_TRADE_DRY_RUN=true`
+2. **小资金试运行**: `amount_min=1, amount_max=3`
+3. **观察 Bandit 权重变化**: 监控各策略 UCB 分数
+4. **逐步启用策略**: 先 smart_closing，稳定后加 whale
+
+---
+
+## 📈 实战数据监控
+
+### 建议监控指标
+
+```python
+# 每日统计
+- 总信号数
+- 执行信号数
+- 胜率
+- 平均盈亏
+- Bandit 权重分布
+- 策略 P&L 排名
+```
+
+### 告警阈值
+
+| 指标 | 阈值 | 动作 |
+|------|------|------|
+| 连续亏损 | > 5 笔 | 暂停交易，检查策略 |
+| 单日亏损 | > $50 | 暂停交易，人工审查 |
+| 胜率 | < 40% | 调整参数或禁用策略 |
+| 持仓超限 | > $700 | 停止开新仓 |
 
 ---
 
