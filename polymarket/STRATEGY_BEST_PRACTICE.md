@@ -1,7 +1,7 @@
 # Polymarket 交易策略最佳实践
 
 > 基于 GitHub 开源项目研究、实战经验总结和社区最佳实践
-> 更新时间: 2026-03-16 00:00 UTC
+> 更新时间: 2026-03-16 12:00 UTC
 
 ---
 
@@ -823,6 +823,75 @@ SIGNAL_TRADE_MAX_PRICE=0.70  # 只做低价区（Long-Shot）
 | 单日亏损 | > $50 | 暂停交易，人工审查 |
 | 胜率 | < 40% | 调整参数或禁用策略 |
 | 持仓超限 | > $700 | 停止开新仓 |
+
+---
+
+## 🆕 最新更新 (2026-03-16 12:00)
+
+### py-clob-client 官方 SDK 更新
+
+**核心要点**：
+- 签名类型区分：
+  - `signature_type=0`: MetaMask/硬件钱包（需设置 Token Allowances）
+  - `signature_type=1`: Email/Magic 钱包
+  - `signature_type=2`: Browser wallet proxy
+
+**关键 API 端点**：
+```python
+HOST = "https://clob.polymarket.com"
+CHAIN_ID = 137  # Polygon Mainnet
+
+# 获取市场数据
+midpoint = client.get_midpoint(token_id)
+price = client.get_price(token_id, side="BUY")
+book = client.get_order_book(token_id)
+```
+
+### poly-maker 作者警告（重要）
+
+> ⚠️ **"In today's market, this bot is not profitable and will lose money."**
+
+**这意味着**：
+- 简单做市策略已失效（竞争激烈）
+- 3.15% 手续费侵蚀大部分利润
+- 需要 **adaptive execution**（自适应执行）
+- 应该专注于 **Smart Money 跟单** 和 **NO Farming**
+
+### 当前系统配置快照
+
+| 参数 | 当前值 | 建议值 | 说明 |
+|------|--------|--------|------|
+| `SIGNAL_TRADE_MIN_PRICE` | **0.80** ✅ | 0.80 | 高价区已设置 |
+| `SIGNAL_TRADE_MAX_PRICE` | 0.99 | 0.99 | 正确 |
+| `SIGNAL_TRADE_AMOUNT_MIN` | $1.0 | **$3.0** | 手续费侵蚀 |
+| `SIGNAL_TRADE_AMOUNT_MAX` | $5.0 | **$10.0** | 提高资金效率 |
+| `SIGNAL_CONFIRMATION_COUNT` | 3 | **2** | 提高执行率 |
+| `COOLDOWN_AFTER_LOSS_STREAK` | **3** ✅ | 3 | 已启用 |
+| `MIN_WHALE_RATIO` | 0.30 | 0.30 | 正确 |
+| `AUTO_TRADE_ENABLED` | **false** | true | 需手动开启 |
+
+### 实战数据洞察（最近 24 小时）
+
+**价格区间胜率**：
+| 区间 | 胜率 | 交易数 | 结论 |
+|------|------|--------|------|
+| $0.80-1.00 | **96.0%** | 24/25 | ✅ 黄金区间 |
+| $0.00-0.60 | **0.0%** | 0/19 | ❌ 避免 |
+| $0.60-0.80 | **0.0%** | 0/2 | ❌ 死亡区间 |
+
+**类别胜率**：
+| 类别 | 胜率 | 战绩 |
+|------|------|------|
+| Sports | **63.2%** | 12/19 |
+| Entertainment | 66.7% | 2/3 |
+| Other | 43.5% | 10/23 |
+| Politics | 0.0% | 0/1 |
+
+### 进程运行状态
+
+- 运行时间：**~120 小时**（Mar15 启动）
+- 进程稳定，无崩溃
+- 当前状态：W3（连胜3）
 
 ---
 
