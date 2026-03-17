@@ -1,80 +1,133 @@
 # Polymarket 交易策略最佳实践
 
 > 基于 GitHub 开源项目研究、实战经验总结和社区最佳实践
-> 更新时间: 2026-03-17 00:00 UTC
+> 更新时间: 2026-03-17 12:00 UTC
 
 ---
 
-## 🆕 最新更新 (2026-03-17 00:00)
+## 🆕 最新更新 (2026-03-17 12:00)
+
+### Polymarket 官方 API 最佳实践
+
+**核心 SDK**: `@polymarket/clob-client` / `py-clob-client`
+
+**推荐架构**:
+```python
+from py_clob_client.client import ClobClient
+
+HOST = "https://clob.polymarket.com"
+CHAIN_ID = 137  # Polygon Mainnet
+
+# 市价单执行（推荐 FOK - Fill or Kill）
+order = MarketOrderArgs(
+    token_id=token_id, 
+    amount=25.0, 
+    side=BUY, 
+    order_type=OrderType.FOK
+)
+```
+
+### 策略代码审核完成 (2026-03-17 05:35)
+
+**已删除的禁用策略**:
+- mert_sniper_v2.py (尾盘狙击)
+- ai_divergence_v2.py (AI 分歧检测)
+- signal_sniper_v2.py (RSS 新闻信号)
+- weather_trader_v2.py (天气事件交易)
+- fast_loop_v2.py (BTC/ETH/SOL 市场)
+
+**保留的核心策略**:
+| 策略 | 核心逻辑 | 状态 |
+|------|---------|------|
+| **Smart Money** | 跟踪大额交易流，检测共识 | ✅ 运行中 |
+| **Copytrading** | 查询历史交易，共识/单人大额 | ✅ 运行中 |
+| **Tail Strategy** | 追踪强势方 (价格 > 80%) | ✅ 已修复 bug |
+| **Trailing Stop** | Underdog 抄底，等待价格反弹 | ✅ 运行中 |
+
+### Tail Strategy Bug 修复 (2026-03-17 05:35)
+
+**问题**:
+- 配置追踪 >80% 的市场，但买入 ~35% 的 YES
+- 价格获取依赖 WebSocket 缓存，经常为空
+
+**修复**:
+1. 添加 REST API fallback（和 trailing_stop 一致）
+2. 修正核心逻辑：
+   - YES 价格 > 80% → 买 YES
+   - NO 价格 > 80% → 买 NO
+3. 传入 SDK 参数用于 API 调用
+
+### 当前进程状态
+
+**运行时间**: ~4 小时（08:01 UTC 重启）
+**PID**: 4103912
+**内存**: ~710 MB
+
+---
+
+## 🆕 最新更新 (2026-03-17 02:22)
 
 ### 当前持仓快照
 
-**运行状态**: 进程稳定运行 **239 小时**
+**运行状态**: 进程刚重启（02:20 UTC）
 
 | 指标 | 数值 |
 |------|------|
-| 持仓数量 | 17 个 |
-| 总价值 | $140.49 |
+| 持仓数量 | **17 个** |
 | 总成本 | $134.17 |
-| **浮动盈亏** | **+$6.32 (+4.7%)** |
+| 总价值 | $141.37 |
+| **浮动盈亏** | **+$7.20 (+5.4%)** |
 
 **Top 盈利持仓**:
-| 市场 | 方向 | 盈亏 |
+| 市场 | 入场价 | 当前价 | 盈亏 |
+|------|--------|--------|------|
+| US forces enter Iran | $0.573 | $0.75 | **+$2.96** |
+| Ken Paxton primary | $0.46 | $0.61 | **+$1.56** |
+| Russia-Ukraine ceasefire | $0.862 | $0.981 | **+$1.10** |
+| NBA DAL-MIL | $0.53 | $0.63 | **+$0.99** |
+
+**亏损持仓**:
+| 市场 | 入场价 | 当前价 | 盈亏 |
+|------|--------|--------|------|
+| Russia invade NATO | $0.957 | $0.947 | -$0.31 |
+| MegaETH airdrop | $0.658 | $0.63 | -$0.20 |
+
+### 实际启用的策略
+
+| 策略 | 状态 | 功能 |
 |------|------|------|
-| US forces enter Iran | No | +$2.96 |
-| Ken Paxton primary | No | +$1.56 |
-| Russia-Ukraine ceasefire | No | +$1.10 |
+| `copytrading` | ✅ 运行中 | Smart Money 跟单（核心） |
+| `tail_strategy` | ✅ 运行中 | 趋势追踪 |
+| `trailing_stop` | ✅ 运行中 | 追踪止损 |
+| `trade_journal` | ✅ 运行中 | 交易日志 |
 
-### Trailing Stop 策略（来自 Rust-Polymarket-Trading-Bot）
+### 已禁用的策略
 
-**核心逻辑**:
-- 只买入价格 **< $0.50** 的方（underdog）
-- 等待 trailing stop 触发（ask ≥ lowest + trailing_stop_point）
-- 支持 2-outcome 和 3-outcome 市场
+| 策略 | 功能 |
+|------|------|
+| `mert_sniper` | 尾盘狙击 |
+| `fast_loop` | BTC/ETH/SOL 市场 |
+| `signal_sniper` | RSS 新闻信号 |
+| `ai_divergence` | AI 分歧度检测 |
+| `weather_trader` | 天气事件交易 |
 
-**配置参数**:
-| 参数 | 推荐值 | 说明 |
-|------|--------|------|
-| `trailing_stop_point` | 0.03 | 价格反弹阈值 |
-| `trailing_shares` | 10 | 每次买入股数 |
-| `check_interval_ms` | 1000 | 检查间隔 |
-| `sell_price` | 0.99 | 卖出目标价 |
-| `continuous` | false | 是否循环交易 |
+### 已删除的策略
 
-**关键优势**:
-- 买入双方后锁定利润（无论结果）
-- 避免单边持仓风险
-- 适合低流动性市场
-
-### 策略模块清理
-
-**已删除**:
 - `no_farming.py` — Polymarket 没有"做空"概念，只有 YES/NO Token
 
-**已启用**:
-- `copytrading` — Smart Money 跟单
-- `trade_journal` — 交易日志
-- `slippage_protection` — 滑点保护（集成在 automaton_v2.py）
+### 待调整配置
 
-**待启用**:
-- `tail_strategy` — 趋势追踪（价格 >60% + 成交量飙升 → 追涨）
-- `fast_loop` — BTC/ETH/SOL 市场
-- `mert_sniper` — 尾盘狙击
-
-### 信号过滤问题
-
-**当前问题**: `MIN_TIME_TO_EXPIRY=6h` 过滤掉大部分热门市场
+**问题**: `MIN_TIME_TO_EXPIRY=6` 过滤掉大部分热门市场
 
 **日志证据**:
 ```
-[FILTERED] ❌ Too Early: 25.6h > 6h | Market: Will Elon Musk post...
-[FILTERED] ❌ Too Early: 373.6h > 6h | Market: Will Bitcoin reach $85,000...
+[FILTERED] ❌ Too Early: 333.6h > 6h | Market: Trump out as President...
+[FILTERED] ❌ Too Early: 6933.6h > 6h | Market: Netanyahu out by March 31...
 ```
 
-**建议调整**:
-```bash
-MIN_TIME_TO_EXPIRY=24  # 从 6 改成 24
-```
+**建议**: 改成 `MIN_TIME_TO_EXPIRY=24`
+
+**状态**: ❌ 未调整
 
 ---
 
@@ -965,75 +1018,6 @@ SIGNAL_TRADE_MAX_PRICE=0.70  # 只做低价区（Long-Shot）
 | 单日亏损 | > $50 | 暂停交易，人工审查 |
 | 胜率 | < 40% | 调整参数或禁用策略 |
 | 持仓超限 | > $700 | 停止开新仓 |
-
----
-
-## 🆕 最新更新 (2026-03-16 12:00)
-
-### py-clob-client 官方 SDK 更新
-
-**核心要点**：
-- 签名类型区分：
-  - `signature_type=0`: MetaMask/硬件钱包（需设置 Token Allowances）
-  - `signature_type=1`: Email/Magic 钱包
-  - `signature_type=2`: Browser wallet proxy
-
-**关键 API 端点**：
-```python
-HOST = "https://clob.polymarket.com"
-CHAIN_ID = 137  # Polygon Mainnet
-
-# 获取市场数据
-midpoint = client.get_midpoint(token_id)
-price = client.get_price(token_id, side="BUY")
-book = client.get_order_book(token_id)
-```
-
-### poly-maker 作者警告（重要）
-
-> ⚠️ **"In today's market, this bot is not profitable and will lose money."**
-
-**这意味着**：
-- 简单做市策略已失效（竞争激烈）
-- 3.15% 手续费侵蚀大部分利润
-- 需要 **adaptive execution**（自适应执行）
-- 应该专注于 **Smart Money 跟单** 和 **NO Farming**
-
-### 当前系统配置快照
-
-| 参数 | 当前值 | 建议值 | 说明 |
-|------|--------|--------|------|
-| `SIGNAL_TRADE_MIN_PRICE` | **0.80** ✅ | 0.80 | 高价区已设置 |
-| `SIGNAL_TRADE_MAX_PRICE` | 0.99 | 0.99 | 正确 |
-| `SIGNAL_TRADE_AMOUNT_MIN` | $1.0 | **$3.0** | 手续费侵蚀 |
-| `SIGNAL_TRADE_AMOUNT_MAX` | $5.0 | **$10.0** | 提高资金效率 |
-| `SIGNAL_CONFIRMATION_COUNT` | 3 | **2** | 提高执行率 |
-| `COOLDOWN_AFTER_LOSS_STREAK` | **3** ✅ | 3 | 已启用 |
-| `MIN_WHALE_RATIO` | 0.30 | 0.30 | 正确 |
-| `AUTO_TRADE_ENABLED` | **false** | true | 需手动开启 |
-
-### 实战数据洞察（最近 24 小时）
-
-**价格区间胜率**：
-| 区间 | 胜率 | 交易数 | 结论 |
-|------|------|--------|------|
-| $0.80-1.00 | **96.0%** | 24/25 | ✅ 黄金区间 |
-| $0.00-0.60 | **0.0%** | 0/19 | ❌ 避免 |
-| $0.60-0.80 | **0.0%** | 0/2 | ❌ 死亡区间 |
-
-**类别胜率**：
-| 类别 | 胜率 | 战绩 |
-|------|------|------|
-| Sports | **63.2%** | 12/19 |
-| Entertainment | 66.7% | 2/3 |
-| Other | 43.5% | 10/23 |
-| Politics | 0.0% | 0/1 |
-
-### 进程运行状态
-
-- 运行时间：**~120 小时**（Mar15 启动）
-- 进程稳定，无崩溃
-- 当前状态：W3（连胜3）
 
 ---
 
