@@ -1,34 +1,64 @@
 # Polymarket 交易策略最佳实践
 
 > 基于 GitHub 开源项目研究、实战经验总结和社区最佳实践
-> 更新时间: 2026-03-18 12:00 UTC
+> 更新时间: 2026-03-18 12:33 UTC
 
 ---
 
-## 🆕 最新更新 (2026-03-18 12:00)
+## 🆕 最新更新 (2026-03-18 12:33)
 
-### 🔴 关键配置问题发现
+### ✅ 关键配置问题已修复
 
 **问题**: 尾盘信号 (Stage5/6, 价格 0.50-0.70) 全部被价格过滤器拦截
 
-```
-total_signals_received: 6
-total_signals_executed: 0
-total_skipped_price: 6  ← 全部因价格被跳过
-```
-
 **根因**:
-- `SIGNAL_TRADE_MIN_PRICE=0.80` 阻止了所有 Stage5/6 信号
-- Stage5 (0.60-0.70) 和 Stage6 (0.50-0.60) 的信号无法通过
+1. `.env`: `SIGNAL_TRADE_MIN_PRICE=0.80` 阻止低价信号
+2. `run_automaton_integrated.py` 第 173 行硬编码 `if price >= 0.80`
 
-**建议修复**:
+**已修复**:
 ```bash
-# 方案1: 降低价格门槛，允许尾盘信号
-SIGNAL_TRADE_MIN_PRICE=0.50  # 从 0.80 降到 0.50
+# 1. .env 配置
+SIGNAL_TRADE_MIN_PRICE=0.50  # 从 0.80 改为 0.50
 
-# 方案2: 保持当前配置，只做高价区
-# 不改，但需要接受尾盘信号被过滤
+# 2. run_automaton_integrated.py 代码
+# 移除硬编码 price >= 0.80，改为读取 MIN_CONFIDENCE 环境变量
+min_confidence = float(os.getenv('MIN_CONFIDENCE', '0.6'))
+if analysis.get('confidence', 0) >= min_confidence:
+    # 允许所有价格信号通过
 ```
+
+### 当前生效配置 (2026-03-18 12:33)
+
+**价格范围**:
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `SIGNAL_TRADE_MIN_PRICE` | **0.50** | 允许 Stage5/6 信号 |
+| `SIGNAL_TRADE_MAX_PRICE` | 0.99 | 最高价格 |
+| 死亡区间 | 0.70-0.80 | ❌ 硬编码过滤 |
+
+**Stage 净流入门槛**:
+| Stage | 价格区间 | 净流入门槛 |
+|-------|---------|-----------|
+| Stage1 | 0.95-0.999 | $1,000 |
+| Stage2 | 0.90-0.95 | $500 |
+| Stage3 | 0.80-0.90 | $500 |
+| Stage4 | 0.70-0.80 | ❌ 死亡区间 |
+| Stage5 | 0.60-0.70 | $1,500 |
+| Stage6 | 0.50-0.60 | $2,000 |
+
+**过滤参数**:
+| 参数 | 值 |
+|------|-----|
+| `WEBSOCKET_MICRO_TRADE_THRESHOLD` | $50 |
+| `HARD_LIMIT_MIN_NET_FLOW` | $100 |
+| `MIN_CONFIDENCE` | 60% |
+| `MIN_TIME_TO_EXPIRY` | 6h |
+
+**启用的策略**:
+- ✅ copytrading (Smart Money 跟单)
+- ✅ tail_strategy (趋势追踪 ≥ 0.80)
+- ✅ trailing_stop (Underdog 抄底)
+- ✅ trade_journal (交易日志)
 
 ### 7 种套利策略详解 (Zeta-Trade)
 
