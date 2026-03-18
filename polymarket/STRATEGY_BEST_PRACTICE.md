@@ -32,19 +32,22 @@ if analysis.get('confidence', 0) >= min_confidence:
 **价格范围**:
 | 参数 | 值 | 说明 |
 |------|-----|------|
-| `SIGNAL_TRADE_MIN_PRICE` | **0.50** | 允许 Stage5/6 信号 |
+| `SIGNAL_TRADE_MIN_PRICE` | **0.90** | 只保留 Stage1/2 |
 | `SIGNAL_TRADE_MAX_PRICE` | 0.99 | 最高价格 |
 | 死亡区间 | 0.70-0.80 | ❌ 硬编码过滤 |
 
-**Stage 净流入门槛**:
+**Smart Money Stage 净流入门槛** (只保留 Stage1/2):
 | Stage | 价格区间 | 净流入门槛 |
 |-------|---------|-----------|
 | Stage1 | 0.95-0.999 | $1,000 |
 | Stage2 | 0.90-0.95 | $500 |
-| Stage3 | 0.80-0.90 | $500 |
-| Stage4 | 0.70-0.80 | ❌ 死亡区间 |
-| Stage5 | 0.60-0.70 | $1,500 |
-| Stage6 | 0.50-0.60 | $2,000 |
+
+**策略分工** (按价格区间):
+| 价格区间 | 策略 | 触发条件 |
+|---------|------|---------|
+| < 0.50 | Trailing Stop | Underdog 反弹 |
+| 0.80-0.90 | Tail Strategy | 趋势 + 成交量飙升 |
+| ≥ 0.90 | Smart Money | Stage1/2 净流入 |
 
 **过滤参数**:
 | 参数 | 值 |
