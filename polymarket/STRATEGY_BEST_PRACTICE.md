@@ -1,7 +1,80 @@
 # Polymarket 交易策略最佳实践
 
 > 基于 GitHub 开源项目研究、实战经验总结和社区最佳实践
-> 更新时间: 2026-03-17 12:00 UTC
+> 更新时间: 2026-03-18 12:00 UTC
+
+---
+
+## 🆕 最新更新 (2026-03-18 12:00)
+
+### 🔴 关键配置问题发现
+
+**问题**: 尾盘信号 (Stage5/6, 价格 0.50-0.70) 全部被价格过滤器拦截
+
+```
+total_signals_received: 6
+total_signals_executed: 0
+total_skipped_price: 6  ← 全部因价格被跳过
+```
+
+**根因**:
+- `SIGNAL_TRADE_MIN_PRICE=0.80` 阻止了所有 Stage5/6 信号
+- Stage5 (0.60-0.70) 和 Stage6 (0.50-0.60) 的信号无法通过
+
+**建议修复**:
+```bash
+# 方案1: 降低价格门槛，允许尾盘信号
+SIGNAL_TRADE_MIN_PRICE=0.50  # 从 0.80 降到 0.50
+
+# 方案2: 保持当前配置，只做高价区
+# 不改，但需要接受尾盘信号被过滤
+```
+
+### 7 种套利策略详解 (Zeta-Trade)
+
+| 策略 | 核心逻辑 | 当前费用环境下 | 推荐度 |
+|------|---------|--------------|--------|
+| **Liquidity Absorption Flip** | 吸收流动性后翻转价格 | 可行 | ⭐⭐⭐ |
+| **Orderbook Parity Arbitrage** | YES+NO<$1 买入双方 | ❌ 已被费用侵蚀 | ❌ |
+| **Structural Spread Lock** | 恐慌错定价买入双方 | 可行 | ⭐⭐⭐ |
+| **Systematic NO Farming** | 系统性做空过度炒作 | ✅ 有效 | ⭐⭐⭐⭐⭐ |
+| **Long-Shot Floor Buying** | 买最低价 YES (≈0.1¢) | 高风险高回报 | ⭐⭐ |
+| **Spread Farming** | 高频买卖赚价差 | ❌ 费用侵蚀 | ❌ |
+| **High-Probability Compounding** | 买 $0.90-0.99 复利 | ✅ 有效 | ⭐⭐⭐⭐ |
+
+**关键警告**: 3.15% 手续费已侵蚀大部分简单套利利润，需要 **Adaptive Execution**（自适应执行）
+
+### Trailing Stop 策略最佳实践 (bitman09/Rust-Polymarket-Trading-Bot)
+
+**核心原理**: 买入 Underdog (<$0.50)，追踪价格反弹，买入另一方锁定利润
+
+**配置参数**:
+| 参数 | 推荐值 | 说明 |
+|------|--------|------|
+| `trailing_stop_point` | 0.03 | 价格反弹阈值 |
+| `trailing_shares` | 10 | 每次买入股数 |
+| `check_interval_ms` | 1000 | 检查间隔 |
+| `continuous` | true | 重复直到市场结束 |
+| `sell_price` | 0.99 | 卖出目标价 |
+
+**执行流程**:
+```
+第一步: 追踪所有 outcome，只买价格 < 0.50 的方 (underdog)
+第二步: 追踪剩余 token，触发时买入
+循环: continuous=true 时重复直到市场结束
+```
+
+**支持**: 2-outcome 和 3-outcome 市场
+
+### 当前系统状态
+
+| 指标 | 数值 |
+|------|------|
+| 进程运行时间 | ~7 小时 |
+| 总信号接收 | 6 |
+| 信号执行 | 0 (全部被价格过滤) |
+| 持仓数量 | 19 个 |
+| 总投入 | ~$90 |
 
 ---
 
