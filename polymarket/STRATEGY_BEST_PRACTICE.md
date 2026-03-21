@@ -1,8 +1,8 @@
 # Polymarket 交易策略最佳实践
 
-> **最后更新**: 2026-03-20
-> **版本**: 2.0
-> **来源**: 项目代码分析 + 回测数据 + 生产运行经验
+> **最后更新**: 2026-03-21
+> **版本**: 2.1
+> **来源**: 项目代码分析 + 回测数据 + 生产运行经验 + Bug 修复记录
 
 ---
 
@@ -547,8 +547,97 @@ AUTO_TRADE_DRY_RUN=true python3 run_automaton_integrated.py
 
 | 日期 | 版本 | 更新内容 |
 |------|------|---------|
+| 2026-03-21 | 2.1 | Bug 修复记录：Tail Strategy 超时、价格字段错误、持仓状态累积 |
 | 2026-03-20 | 2.0 | 添加性能优化、扫描超时、数据源管理 |
 | 2026-03-19 | 1.0 | 初始版本 |
+
+---
+
+## 16. Bug 修复记录 (2026-03-20)
+
+### 16.1 Tail Strategy 扫描超时
+
+**现象**: `scan()` 永不返回，日志显示信号但 `Skills 信号: 0`
+
+**根因**:
+- 遍历 27,376 个市场
+- 每个市场调用 REST API 获取价格
+- 扫描间隔 30 秒到达时被取消
+
+**修复**:
+```python
+# skills_v2/tail_strategy.py
+self.max_markets_to_scan = 50     # 最多扫描 50 个市场
+self.max_price_api_calls = 30     # 最多 30 次 API 调用
+self.scan_timeout_seconds = 25    # 25 秒超时保护
+```
+
+---
+
+### 16.2 价格字段错误
+
+**现象**: 买 NO @ 96% 的信号被过滤
+```
+⏭️ 跳过：价格超出范围 ($0.04 不在 $0.90 - $0.99)
+```
+
+**根因**: 买 NO 时 `yes_price` 传入 YES 价格 (0.04)
+
+**修复**:
+```python
+# 买 YES 用 YES 价格，买 NO 用 NO 价格
+signal_price = target_price  # 信号方向的价格
+```
+
+---
+
+### 16.3 Automaton 持仓状态累积
+
+**现象**: 显示 202 个持仓，链上只有 21 个
+
+**根因**: `automaton_state.json` 累积历史记录，启动时未从链上同步
+
+**修复**:
+```python
+# automaton_v2.py _load_state()
+# 1. 先从 positions.json 加载链上实际持仓
+# 2. 再从 automaton_state.json 加载策略统计
+```
+
+---
+
+### 16.4 positions.json 字段映射
+
+**现象**: 加载持仓但 `cost` 全为 0
+
+**根因**: 文件字段 `size`, `entry_price` 与代码 `shares`, `cost` 不匹配
+
+**修复**:
+```python
+cost = entry_price * size  # 正确计算
+```
+
+---
+
+## 17. 优化建议
+
+### 17.1 数据缓存优化
+
+**当前问题**:
+- Tail Strategy 扫描所有市场，REST API 调用 500+ 次
+- Smart Money Live Data 已缓存活跃市场价格
+
+**建议**:
+1. 统一使用 Smart Money 的价格缓存
+2. 缓存未命中时直接跳过，不调用 REST API
+
+### 17.2 配置建议
+
+| 参数 | 当前值 | 建议值 | 说明 |
+|------|-------|--------|------|
+| `SIGNAL_TRADE_MIN_PRICE` | 0.15 | **0.80** | 避免低价区间 |
+| `SAFEGUARDS_MIN_LIQUIDITY` | $500 | **$10,000** | 确保流动性 |
+| `TOTAL_CAPITAL` | 硬编码 | **环境变量** | 可配置资金 |
 
 ---
 
