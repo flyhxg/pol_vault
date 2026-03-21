@@ -1,8 +1,8 @@
 # Polymarket 交易策略最佳实践
 
 > **最后更新**: 2026-03-21
-> **版本**: 2.1
-> **来源**: 项目代码分析 + 回测数据 + 生产运行经验 + Bug 修复记录
+> **版本**: 2.2
+> **来源**: 项目代码分析 + 回测数据 + 生产运行经验 + Bug 修复记录 + 外部研究
 
 ---
 
@@ -638,6 +638,149 @@ cost = entry_price * size  # 正确计算
 | `SIGNAL_TRADE_MIN_PRICE` | 0.15 | **0.80** | 避免低价区间 |
 | `SAFEGUARDS_MIN_LIQUIDITY` | $500 | **$10,000** | 确保流动性 |
 | `TOTAL_CAPITAL` | 硬编码 | **环境变量** | 可配置资金 |
+
+---
+
+## 18. 外部研究与最佳实践 (2026-03-21 更新)
+
+### 18.1 Kelly Criterion 仓位管理
+
+**来源**: [Kelly Criterion for Polymarket](https://managebankroll.com/blog/polymarket-kelly-criterion-position-sizing)
+
+**核心公式**:
+```
+Kelly% = (p × b - q) / b
+
+其中:
+- p = 你的预测概率
+- q = 1 - p (反向概率)
+- b = 净赔率 = (1 - 市场价格) / 市场价格
+```
+
+**示例计算**:
+```
+市场价 = $0.65, 你的预测 = 60%
+Kelly% = (0.60 × 0.538 - 0.40) / 0.538 = -12.8%
+
+结论: 不应下注 (负值)
+```
+
+**Fractional Kelly 建议**:
+| 风险偏好 | Kelly 分数 | 适用场景 |
+|---------|-----------|---------|
+| 保守 | 1/4 Kelly | 新仓位、不确定估计 |
+| 适中 | 1/2 Kelly | 正常交易 |
+| 激进 | Full Kelly | 高置信度、信息优势明显 |
+
+**警告**: 
+- 超过 Full Kelly 会降低长期收益
+- 预测概率有误差时，应使用更小的 Kelly 分数
+
+---
+
+### 18.2 Whale 追踪策略分析
+
+**来源**: [27000 Trades Analysis](https://www.mexc.com/ko-KR/news/402926)
+
+**关键发现**:
+1. **胜率迷思**: Top 10 Whale 真实胜率仅 42-54%，并非想象中的 80%+
+2. **盈利关键**: 盈亏比 > 胜率，盈利 Whale 的盈亏比通常 > 2.0
+3. **对冲策略**: 部分 Whale 使用对冲降低风险，对冲比例 6-30%
+4. **僵尸订单**: 未平仓订单可能造成大额亏损 ($130k in one case)
+
+**建议**:
+```python
+# 关注盈亏比而非单纯胜率
+def evaluate_whale(whale_stats):
+    if whale_stats.profit_factor >= 2.0:
+        return "HIGH_PRIORITY"
+    elif whale_stats.win_rate >= 0.60 and whale_stats.profit_factor >= 1.5:
+        return "MEDIUM_PRIORITY"
+    else:
+        return "LOW_PRIORITY"
+```
+
+---
+
+### 18.3 十大交易策略 (Laika AI)
+
+**来源**: [Top 10 Polymarket Trading Strategies](https://laikalabs.ai/prediction-markets/polymarket-trading-strategies)
+
+| 策略 | 描述 | 适用场景 |
+|------|------|---------|
+| Cross-Platform Arbitrage | 跨平台价差套利 | Kalshi vs Polymarket |
+| Breaking News | 突发新闻早期建仓 | 政治事件、经济数据 |
+| Correlation Trading | 相关性交易 | 联动市场 (如选举+政策) |
+| Time Decay | 时间价值衰减 | 接近到期的高价市场 |
+| Value Betting | 统计模型价值投注 | 有数据优势的市场 |
+| Event-Driven Hedging | 事件驱动对冲 | 高风险事件前 |
+| Portfolio Diversification | 组合分散 | 降低单一市场风险 |
+
+---
+
+### 18.4 共识机制价格偏离保护
+
+**问题发现**: 2026-03-21 生产运行中发现共识等待期间价格从 81% 跌到 36%
+
+**根因**:
+- 共识机制需要多个策略确认
+- 等待期间市场价格可能大幅变化
+- 执行时未检查信号价格是否仍然有效
+
+**修复方案**:
+```python
+# automaton_v2.py
+MAX_PRICE_DEVIATION = 0.20  # 最大允许偏离 20%
+
+def check_price_deviation(signal_price, current_price):
+    deviation = abs(current_price - signal_price) / signal_price
+    if deviation > MAX_PRICE_DEVIATION:
+        reject_signal("价格偏离过大，信号可能过期")
+        return False
+    return True
+```
+
+---
+
+### 18.5 预测市场生态系统
+
+**来源**: [Definitive Guide to Prediction Markets](https://4pillars.io/en/articles/the-definitive-guide-to-prediction-markets)
+
+**平台对比**:
+| 平台 | 特点 | 适用场景 |
+|------|------|---------|
+| Polymarket | 去中心化、高流动性 | 加密、政治、体育 |
+| Kalshi | CFTC 监管、机构级 | 金融、经济数据 |
+| Metaculus | 社区预测、AI 聚合 | 长期预测 |
+
+---
+
+## 19. 工具与资源
+
+### 19.1 Whale 追踪工具
+
+| 工具 | 功能 | 链接 |
+|------|------|------|
+| Polymarket Whale Tracker (Apify) | Whale 追踪、异常检测 | [Apify](https://apify.com/jy-labs/polymarket-whale-tracker) |
+| Polymarket Analytics | 资金流、Top Traders | 内置 |
+
+### 19.2 计算工具
+
+| 工具 | 功能 | 链接 |
+|------|------|------|
+| Kelly Calculator | 仓位计算 | [PredictionMarketsPicks](https://predictionmarketspicks.com/tools/kelly) |
+| Probability Converter | 价格转概率 | 同上 |
+
+---
+
+## 20. 更新日志
+
+| 日期 | 版本 | 更新内容 |
+|------|------|---------|
+| 2026-03-21 | 2.2 | 新增外部研究、Kelly Criterion、Whale 分析、工具资源 |
+| 2026-03-21 | 2.1 | Bug 修复记录：Tail Strategy 超时、价格字段错误、持仓状态累积 |
+| 2026-03-20 | 2.0 | 添加性能优化、扫描超时、数据源管理 |
+| 2026-03-19 | 1.0 | 初始版本 |
 
 ---
 
