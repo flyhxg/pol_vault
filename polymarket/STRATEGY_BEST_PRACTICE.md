@@ -1,7 +1,7 @@
 # Polymarket 交易策略最佳实践
 
-> **最后更新**: 2026-03-21
-> **版本**: 2.2
+> **最后更新**: 2026-03-22
+> **版本**: 2.3
 > **来源**: 项目代码分析 + 回测数据 + 生产运行经验 + Bug 修复记录 + 外部研究
 
 ---
@@ -773,10 +773,81 @@ def check_price_deviation(signal_price, current_price):
 
 ---
 
-## 20. 更新日志
+## 20. 最新研究发现 (2026-03-22 更新)
+
+### 20.1 Whale 追踪策略优化
+
+**来源**: [VPN07 Whale Tracking Guide](https://vpn07.com/en/blog/2026-polymarket-whale-tracking-copy-smart-money-winning-guide.html)
+
+**关键发现**:
+1. **27,000 笔交易分析**: Top 10 Whale 真实策略复杂，非简单方向性押注
+2. **分类匹配**: 选择 3-5 个在你有能力研究的类别中交易的 Whale
+3. **信号解读**: 不仅要看持仓，还要分析**成交量、时机、仓位大小**
+
+**优化建议**:
+```python
+# Whale 信号分析三要素
+def analyze_whale_signal(whale_activity):
+    # 1. 成交量异常
+    volume_zscore = (volume - avg_volume) / std_volume
+    
+    # 2. 时机分析
+    timing_score = analyze_timing(whale_activity.timestamp)
+    
+    # 3. 仓位大小变化
+    position_change = whale_activity.position_delta / whale_activity.total_position
+    
+    return {
+        'volume_signal': volume_zscore,
+        'timing_signal': timing_score,
+        'position_signal': position_change
+    }
+```
+
+---
+
+### 20.2 Fractional Kelly 实战验证
+
+**来源**: [Reddit 18 Month Backtest](https://www.reddit.com/r/quant/comments/1o2wzfh/applying_kelly_criterion_to_sports_betting_18/)
+
+**关键发现**:
+- **Full Kelly**: 35%+ 回撤
+- **1/4 Kelly**: 更好的风险调整收益
+
+**Medium 实战案例**:
+- 40 天内用 75% 胜率 + 1/8 Kelly 将 $4,000 变成 $6,000
+- 目标: 5-6 个月内达到 $10,000+/月
+
+**配置建议**:
+| 场景 | Kelly 分数 | 原因 |
+|------|-----------|------|
+| 新仓位 | 1/8 Kelly | 不确定估计 |
+| 验证过的信号 | 1/4 Kelly | 正常交易 |
+| 高置信度 + 信息优势 | 1/2 Kelly | 激进但安全 |
+
+---
+
+### 20.3 生产环境实测数据 (2026-03-21)
+
+**Trade Journal 分析**:
+| 价格区间 | 胜率 | 交易数 | 结论 |
+|---------|------|--------|------|
+| Low (0-0.60) | **0%** | 3 | ❌ 必须过滤 |
+| Mid (0.60-0.80) | **0%** | 1 | ❌ 必须过滤 |
+| High (0.80-1.00) | **92.6%** | 21 | ✅ 主力区间 |
+
+**价格偏离问题**:
+- 共识等待期间价格从 81% 跌到 36%
+- 已添加 `MAX_PRICE_DEVIATION=0.20` 保护
+- **需要重启 automaton 使修复生效**
+
+---
+
+## 21. 更新日志
 
 | 日期 | 版本 | 更新内容 |
 |------|------|---------|
+| 2026-03-22 | 2.3 | 新增 Whale 追踪策略优化、Fractional Kelly 实战验证、生产环境实测数据 |
 | 2026-03-21 | 2.2 | 新增外部研究、Kelly Criterion、Whale 分析、工具资源 |
 | 2026-03-21 | 2.1 | Bug 修复记录：Tail Strategy 超时、价格字段错误、持仓状态累积 |
 | 2026-03-20 | 2.0 | 添加性能优化、扫描超时、数据源管理 |
