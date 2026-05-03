@@ -3,7 +3,7 @@
 > 核心思路：先判断市场环境，再决定交易动作
 
 ---
-
+https://woshixiaobi.com/hmm-claude-ai/
 ## 一、核心概念
 
 ### 什么是 HMM？
